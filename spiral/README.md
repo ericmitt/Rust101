@@ -20,11 +20,9 @@ The program opens a window with dimensions 800x600 pixels. When the user clicks 
 
 ## Command Line Parameters
 
-- `num_circles=<number>`: Number of circles (default: 60)
 - `radius1=<radius>`: Radius of circles (default: 10.0)
 - `angle_increment=<increment>`: Angle increment for spiral (default: 0.05)
 - `spiral_radius_increment=<increment>`: Spiral radius increment (default: 0.5)
-- `max_angle=<angle>`: Maximum angle for spiral rotation (default: 30.0)
 - `connect_line=<true/false>`: Connect circles with lines (default: false)
 
 ## Usage
