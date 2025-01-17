@@ -1,0 +1,125 @@
+extern crate piston_window;
+extern crate rand;
+
+use piston_window::*;
+use rand::Rng;
+
+const WIDTH: usize = 800;
+const HEIGHT: usize = 640;
+const CELL_SIZE: f64 = 15.0; // Increase the size of the grass
+const CELL_REPRO_AREA: isize = 15;
+const CELL_NUM_DESC: isize = 7;
+const MAX_GRASS: usize = 1000;
+
+#[derive(Clone, Copy)]
+struct Grass {
+    x: usize,
+    y: usize,
+    age: u32,
+}
+
+impl Grass {
+    fn new(x: usize, y: usize) -> Self {
+        Grass { x, y, age: 0 }
+    }
+
+    fn update(&mut self) -> Option<Vec<Grass>> {
+        self.age += 1;
+        if self.age >= 10 {
+            return Some(self.reproduce());
+        } else if self.age > 40 {
+            return None;
+        }
+        Some(vec![])
+    }
+
+    fn reproduce(&self) -> Vec<Grass> {
+        let mut rng = rand::thread_rng();
+        let mut seeds = Vec::new();
+        for _ in 0..CELL_NUM_DESC {
+            let dx = rng.gen_range(-1 * CELL_REPRO_AREA..=CELL_REPRO_AREA);
+            let dy = rng.gen_range(-1 * CELL_REPRO_AREA..=CELL_REPRO_AREA);
+            let new_x = (self.x as isize + dx).clamp(0, WIDTH as isize - 1) as usize;
+            let new_y = (self.y as isize + dy).clamp(0, HEIGHT as isize - 1) as usize;
+            seeds.push(Grass::new(new_x, new_y));
+        }
+        seeds
+    }
+}
+
+fn main() {
+    let mut window: PistonWindow =
+        WindowSettings::new("Grass Simulation", [WIDTH as u32, HEIGHT as u32])
+            .exit_on_esc(true)
+            .build()
+            .unwrap();
+
+    let mut world = vec![vec![None; HEIGHT]; WIDTH];
+    let mut rng = rand::thread_rng();
+    let mut grasses = Vec::new();
+
+    let mut simulation_running = false;
+    let mut step = 0;
+
+    let mut glyphs = window.load_font("assets/FiraSans-Regular.ttf").unwrap();
+
+    while let Some(event) = window.next() {
+        if let Some(Button::Mouse(MouseButton::Left)) = event.press_args() {
+            simulation_running = true;
+            step=0;
+            for _ in 0..5 {
+                let x = rng.gen_range(0..WIDTH);
+                let y = rng.gen_range(0..HEIGHT);
+                grasses.push(Grass::new(x, y));
+            }
+        }
+
+        if simulation_running {
+            if let Some(_) = event.update_args() {
+                step += 1;
+                let mut new_grasses = Vec::new();
+                for grass in &mut grasses {
+                    if let Some(seeds) = grass.update() {
+                        for seed in seeds {
+                           if world[seed.x][seed.y].is_none() {
+                                world[seed.x][seed.y] = Some(seed);
+                                new_grasses.push(seed);
+                            }
+                        }
+                    }
+                }
+                grasses.retain(|grass| grass.age <= 40);
+                grasses.extend(new_grasses);
+                if grasses.len() > MAX_GRASS {
+                    grasses.truncate(MAX_GRASS);
+                }
+                if grasses.is_empty() {
+                    simulation_running = false;
+                }
+            }
+        }
+
+        window.draw_2d(&event, |c, g, device| {
+            clear([1.0; 4], g);
+            for grass in &grasses {
+                rectangle(
+                    [0.0, 1.0, 0.0, 1.0], // green color
+                    [grass.x as f64 , grass.y as f64, CELL_SIZE, CELL_SIZE],
+                    c.transform,
+                    g,
+                );
+            }
+
+
+
+            // Display the current step and number of grass instances
+            let text = format!("Step: {}, Grass count: {}", step, grasses.len());
+            let transform = c.transform.trans(10.0, HEIGHT as f64 - 10.0);
+            text::Text::new_color([0.0, 0.0, 0.0, 1.0], 12)
+                .draw(&text, &mut glyphs, &DrawState::default(), transform, g)
+                .unwrap();
+
+            glyphs.factory.encoder.flush(device);
+        });
+    }
+}
