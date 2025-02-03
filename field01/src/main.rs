@@ -18,6 +18,8 @@ const DEFAULT_DEV_ANGLE: f64 = 0.02;
 const DEFAULT_MOUSE_MOVE: bool = false;
 const DEFAULT_TRACE_LINE: bool = false;
 const DEFAULT_TRANSFER_RATE: f64 = 0.5;
+const DEFAULT_SHOW_CIRCLE: bool = true;
+const DEFAULT_BEZIER: bool = false;
 
 #[derive(Clone, Copy)]
 struct Particle {
@@ -41,7 +43,7 @@ impl Particle {
         }
     }
 
-    fn update(&mut self, friction: f64) {
+    fn update(&mut self, friction: f64, width: f64, height: f64, circle_radius: f64) {
         self.x += self.dx * self.speed;
         self.y += self.dy * self.speed;
 
@@ -49,26 +51,25 @@ impl Particle {
         self.speed *= 1.0 - friction;
 
         // Bounce off walls
-        if self.x < DEFAULT_CIRCLE_RADIUS || self.x > DEFAULT_WIDTH as f64 - DEFAULT_CIRCLE_RADIUS {
+        if self.x < circle_radius || self.x > width - circle_radius {
             self.dx = -self.dx;
         }
-        if self.y < DEFAULT_CIRCLE_RADIUS || self.y > DEFAULT_HEIGHT as f64 - DEFAULT_CIRCLE_RADIUS
-        {
+        if self.y < circle_radius || self.y > height - circle_radius {
             self.dy = -self.dy;
         }
     }
 
     fn set_random_direction_and_speed(&mut self, max_speed: f64) {
-        let mut rng = rand::thread_rng();
-        let angle = rng.gen_range(0.0..2.0 * PI);
+        let mut rng = rand::rng();
+        let angle = rng.random_range(0.0..2.0 * PI);
         self.dx = angle.cos();
         self.dy = angle.sin();
-        self.speed = rng.gen_range(0.0..max_speed);
+        self.speed = rng.random_range(0.0..max_speed);
     }
 
     fn apply_impulse(&mut self, impulse: f64) {
-        let mut rng = rand::thread_rng();
-        let angle = rng.gen_range(0.0..2.0 * PI);
+        let mut rng = rand::rng();
+        let angle = rng.random_range(0.0..2.0 * PI);
         self.dx += angle.cos() * impulse;
         self.dy += angle.sin() * impulse;
     }
@@ -89,9 +90,13 @@ fn main() {
         println!("  friction=<number>           Friction coefficient (default: 0.01)");
         println!("  dev_angle=<number>          Deviation angle (default: 0.02)");
         println!("  mouse_move=<true/false>     Enable mouse move impulse (default: false)");
-        println!("  trace_line=<true/false>     Enable mouse move impulse (default: false)");
+        println!("  trace_line=<true/false>     Enable trace lines (default: false)");
         println!(
             "  transfer_rate=<number>      Energy transfer rate during collision (default: 0.5)"
+        );
+        println!("  show_circle=<true/false>    Show circles (default: true)");
+        println!(
+            "  bezier=<true/false>         Draw Bezier curves instead of lines (default: false)"
         );
         return;
     }
@@ -173,7 +178,22 @@ fn main() {
         .and_then(|val| val.parse().ok())
         .unwrap_or(DEFAULT_TRANSFER_RATE);
 
+    let show_circle = args
+        .iter()
+        .find(|arg| arg.starts_with("show_circle="))
+        .and_then(|arg| arg.split('=').nth(1))
+        .and_then(|val| val.parse().ok())
+        .unwrap_or(DEFAULT_SHOW_CIRCLE);
+
+    let bezier = args
+        .iter()
+        .find(|arg| arg.starts_with("bezier="))
+        .and_then(|arg| arg.split('=').nth(1))
+        .and_then(|val| val.parse().ok())
+        .unwrap_or(DEFAULT_BEZIER);
+
     let mut window: PistonWindow = WindowSettings::new("Particle Field", [width, height])
+        .resizable(true)
         .exit_on_esc(true)
         .build()
         .unwrap();
@@ -189,6 +209,8 @@ fn main() {
     }
 
     let target = Arc::new(Mutex::new((0.0, 0.0)));
+    let mut current_width = width as f64;
+    let mut current_height = height as f64;
 
     while let Some(event) = window.next() {
         if let Some(mouse_pos) = event.mouse_cursor_args() {
@@ -215,6 +237,26 @@ fn main() {
                     particle.set_random_direction_and_speed(max_speed);
                 }
             }
+        }
+
+        if let Some(Button::Keyboard(Key::R)) = event.press_args() {
+            for i in 0..rows {
+                for j in 0..cols {
+                    let x = j as f64 * (current_width / cols as f64) + circle_radius;
+                    let y = i as f64 * (current_height / rows as f64) + circle_radius;
+                    particles[i * cols + j].x = x;
+                    particles[i * cols + j].y = y;
+                    particles[i * cols + j].dx = 0.0;
+                    particles[i * cols + j].dy = 0.0;
+                    particles[i * cols + j].speed = 0.0;
+                }
+            }
+        }
+
+        if let Some(args) = event.resize_args() {
+            current_width = args.window_size[0] as f64;
+            current_height = args.window_size[1] as f64;
+            window.set_size([args.window_size[0] as u32, args.window_size[1] as u32]);
         }
 
         for i in 0..particles.len() {
@@ -269,41 +311,91 @@ fn main() {
         }
 
         for particle in &mut particles {
-            particle.update(friction);
+            particle.update(friction, current_width, current_height, circle_radius);
         }
 
         window.draw_2d(&event, |c, g, _| {
-            clear([1.0; 4], g);
-            for particle in &particles {
-                ellipse(
-                    particle.color,
-                    [
-                        particle.x - circle_radius,
-                        particle.y - circle_radius,
-                        2.0 * circle_radius,
-                        2.0 * circle_radius,
-                    ],
-                    c.transform,
-                    g,
-                );
-            }
-
-            if trace_line {
-                for i in 0..particles.len() - 1 {
-                    line(
-                        [1.0, 0.0, 0.0, 1.0], // color: red
-                        2.0,                  // thickness
+            clear([0.0; 4], g);
+            if show_circle {
+                for particle in &particles {
+                    ellipse(
+                        particle.color,
                         [
-                            particles[i].x,
-                            particles[i].y,
-                            particles[i + 1].x,
-                            particles[i + 1].y,
-                        ], // line coordinates
+                            particle.x - circle_radius,
+                            particle.y - circle_radius,
+                            2.0 * circle_radius,
+                            2.0 * circle_radius,
+                        ],
                         c.transform,
                         g,
                     );
                 }
             }
+
+            if trace_line {
+                if bezier {
+                    for i in 0..particles.len() - 1 {
+                        let p0 = [particles[i].x, particles[i].y];
+                        let p1 = [
+                            (particles[i].x + particles[i + 1].x) / 2.0,
+                            (particles[i].y + particles[i + 1].y) / 2.0,
+                        ];
+                        let p2 = [particles[i + 1].x, particles[i + 1].y];
+                        draw_bezier_curve(p0, p1, p2, [1.0, 0.0, 0.0, 1.0], 2.0, c.transform, g);
+                    }
+                } else {
+                    for i in 0..particles.len() - 1 {
+                        line(
+                            [1.0, 0.0, 0.0, 1.0], // color: red
+                            2.0,                  // thickness
+                            [
+                                particles[i].x,
+                                particles[i].y,
+                                particles[i + 1].x,
+                                particles[i + 1].y,
+                            ], // line coordinates
+                            c.transform,
+                            g,
+                        );
+                    }
+                }
+            }
         });
+    }
+}
+
+fn draw_bezier_curve<G: Graphics>(
+    p0: [f64; 2],
+    p1: [f64; 2],
+    p2: [f64; 2],
+    color: [f32; 4],
+    thickness: f64,
+    transform: [[f64; 3]; 2],
+    g: &mut G,
+) {
+    let steps = 100;
+    let amplitude = 15.0; // Amplitude of the sine wave
+    let frequency = 3.0; // Frequency of the sine wave
+
+    for i in 0..steps {
+        let t1 = i as f64 / steps as f64;
+        let t2 = (i + 1) as f64 / steps as f64;
+
+        let x1 = (1.0 - t1).powi(2) * p0[0] + 2.0 * (1.0 - t1) * t1 * p1[0] + t1.powi(2) * p2[0];
+        let y1 = (1.0 - t1).powi(2) * p0[1] + 2.0 * (1.0 - t1) * t1 * p1[1] + t1.powi(2) * p2[1];
+
+        let x2 = (1.0 - t2).powi(2) * p0[0] + 2.0 * (1.0 - t2) * t2 * p1[0] + t2.powi(2) * p2[0];
+        let y2 = (1.0 - t2).powi(2) * p0[1] + 2.0 * (1.0 - t2) * t2 * p1[1] + t2.powi(2) * p2[1];
+
+        let wave1 = amplitude * (frequency * t1 * 2.0 * PI).sin();
+        let wave2 = amplitude * (frequency * t2 * 2.0 * PI).sin();
+
+        line(
+            color,
+            thickness,
+            [x1 + wave1, y1 + wave1, x2 + wave2, y2 + wave2],
+            transform,
+            g,
+        );
     }
 }
