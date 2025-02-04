@@ -1,0 +1,2 @@
+cargo run num_obs=25 boid_speed=1 freq_threshold=.00352 max_angle=1
+
